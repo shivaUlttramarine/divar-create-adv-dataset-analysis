@@ -94,7 +94,7 @@ A. by testing filled and its intraction on page_cnt, we highlight that, below fi
         
     
     
-    ----------------------------    Actionable Results --------------------------------
+#    ----------------------------    Actionable Results --------------------------------
     so:
 1. what makes people stock  on first pages and do no proceed to next page?
    sometimes they are just trying "Add advertise" butt
