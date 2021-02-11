@@ -34,8 +34,8 @@ head(df)
 
 -------------------------------- Data wrangling ---------------
 
-Here I am rying to find order of actions  each user made to identify master patterns
-by this mean I am adding some axillary fields:
+Here I am orying to find order of actions  each user made to identify master patterns
+by this mean I am adding some auxillary fields:
 
 
 STATE :     adding a key column to label each records of user, cotaining:
@@ -96,7 +96,7 @@ str(df)
 
 
 
-Pivoting all the stats of a user form "Stat" point of his Journey to the "End" point.
+Pivoting all the stats of a user form "Start" point of his Journey to the "End" point.
 Containing all he did and experienced.
 Each elemnt of the list, is chain actions of a sub.
 
