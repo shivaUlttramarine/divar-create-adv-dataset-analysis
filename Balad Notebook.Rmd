@@ -1,0 +1,1220 @@
+x---
+title: "إBalad data set"
+output: html_notebook
+---
+
+
+Loding data:
+```{r}
+df <- read.csv("C:/Users/Ultra/Desktop/balad/submit_actions.csv")
+df <-data.frame(df)
+typeof(df)
+head(df)
+```
+
+
+
+Removing Duplicates:
+```{r}
+## removing duplicates
+df_2 <- df[,c(2,3,4,5,6,7,8,9)]
+df <- df[ !duplicated(df_2),]
+df <- df[order(df$device_id,df$created_at),]
+head(df)
+## obviosly we can not remove duplicates
+```
+
+
+
+
+
+
+
+
+
+-------------------------------- Data wrangling ---------------
+
+Here I am rying to find order of actions  each user made to identify master patterns
+by this mean I am adding some axillary fields:
+
+
+STATE :     adding a key column to label each records of user, cotaining:
+            START       :   it can be "Edit"  or "New". we identify begininh of the Pocess
+            Net Err     :   when user action is  "NEXT" or "PRE"  but real "next page" field  is not changing. i take it as Net Err
+            Field Err   :   when page is null and action is "Error". 
+            DONE/UNDONE :   End of the process
+            1-2-3       :   in case non of the above options are valid, and row is simply a transition to next page, then we take "next page" as stat. 
+            
+next_page   :     showing the page user was in.
+
+* fisrt we need to sort data by device_id ,  created_at
+
+```{r}
+
+df$action_code <- 0
+df$stat <- ''
+
+df$page_number <- as.numeric(df$page_number)
+
+df$action_code <- ifelse(df$action =='submit_next_page', +1,df$action_code)
+df$action_code <- ifelse(df$action =='submit_prev_page',-1,df$action_code)
+df$stat <- ifelse(df$action =='enter_submit' & df$is_form_edit =="false",'New 1'   ,df$stat)
+df$stat <- ifelse(df$action =='enter_submit' & df$is_form_edit =="true",'Edit 1'   ,df$stat)
+df$stat <- ifelse(df$action =='exit_submit'  & df$is_successful =="true",'done'  ,df$stat)
+df$stat <- ifelse(df$action =='exit_submit'  & df$is_successful =="false",'undone',df$stat)
+
+head(df)
+library(dplyr)
+df$next_page <- as.numeric(lead(df$page_number, n = 1))
+# df$next_field_name <-lead(df$field_name, n = 1)
+
+
+df$stat <- ifelse(df$action_code !=0 & (df$page_number + df$action_code) != df$next_page  , paste('NetErr',df$next_page),df$stat  )
+df$stat <- ifelse(df$action_code !=0 & (df$page_number + df$action_code) == df$next_page  , paste(df$next_page),df$stat  )
+
+df$stat <- ifelse( is.na(df$page_number) ,df$next_page ,df$stat)
+df$stat <- ifelse( is.na(df$next_page) , paste('Field Err[',df$next_field_name ,']')  ,df$stat)
+
+df$stat <- ifelse( is.na(df$page_number) &!is.na(df$next_page)  , df$next_page,df$stat)
+
+
+df[order(df$device_id,df$created_at),][450:460,c(2,3,5,7:12)]
+df[order(df$device_id,df$created_at),][450:580,c(3,11)]
+
+df[1:30,]
+
+str(df)
+
+
+
+```
+
+
+
+
+
+
+
+
+Pivoting all the stats of a user form "Stat" point of his Journey to the "End" point.
+Containing all he did and experienced.
+Each elemnt of the list, is chain actions of a sub.
+
+```{r}
+
+find_user_loop <- function(test){
+    loops <- ''
+    loop<-''
+    for( i in 1: nrow( test)){
+          if(test[i,]$stat == 'New 1' | test[i,]$stat == 'Edit 1' ){
+              loop<- append( as.character(test[i,]$device_id) , test[i,]$stat) 
+              # print(as.character(test[i,]$device_id)
+                  
+          }else if(   grepl('done' , test[i,]$stat) ){
+              loop<- append( loop , test[i,]$stat)
+              loops <- c(loops, list(loop))
+              # print(loop)
+            
+          }else {
+              loop<- append( loop , test[i,]$stat)
+          }
+    }
+    return (loops)
+}
+
+
+
+# 
+# test <- df[df$device_id=='-08pnnHRTr2Ui7rU03GJ3w' | df$device_id == '-09dv6gUTOeNxKS7g_zCoQ',]
+# test
+# loop_test <-find_user_loop(test)
+# loop_test
+
+
+loops <-find_user_loop(df)
+loops
+head(loops)
+test$stat
+grepl('done' , 'undone')
+```
+
+
+
+
+
+
+We want to check, how many chain actions does a user do?
+chain actions : is set of actions, having an start point, and an end point
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 1.000   4.000   5.000   5.301   6.000 199.000 
+
+*result : 75% of subs, having at most 6 actions on they chain, befor they finish.
+* maximum actions done by a user = 199
+* generally  248.751  user chain actions are identified. 
+
+
+```{r}
+
+
+loops
+cols_cnt <- sapply(loops,nrow)
+cols_cnt
+loop_size_all <- sapply(loops,FUN = NROW)
+summary(loop_size_all)
+max(loop_size_all,decreasing = TRUE)#[1000:2000]       
+
+# Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 1.000   4.000   5.000   5.301   6.000 199.000 
+# max number of action a used have made
+# Loop size= 75%   6
+
+sort(loop_size_all,decreasing = TRUE)#[1000:2000]
+hist(loop_size_all,main = "distribution of actions cnts, in a chain")
+
+NROW(loop_size_all)  #248.751
+loop_size = 199
+loop_size
+
+```
+
+
+let's zoom on cnts below 10:
+Mod= 3 actions:
+Start ->  0   ->  Done
+```{r}
+hist(loop_size_all[loop_size_all<10],main = "distribution of actions cnts, in a chain ( magnified)")
+
+
+```
+which distribution does it blong to?
+it is not logaritmic
+
+```{r}
+hist(log(loop_size_all),main = "distribution of actions cnts, in a chain ( magnified)")
+
+
+```
+trying to transform this count and making it Normal, but bot even close. Boxcox failed
+
+```{r}
+library(forecast)
+lambda <- BoxCox.lambda(loop_size_all)
+loop_size_all_transformed <- scale(BoxCox(loop_size_all,lambda))
+hist(loop_size_all_transformed,main="transformed loop_size_all")
+lambda  #-0.9999381
+
+```
+
+
+
+
+To work easily with this chain actions, we need to transform this list of lists, into a dataframe.
+Here we select each col of supper list and feed it into a data.frame.
+```{r}
+
+
+
+v <- unlist ( lapply(loops, '[', 1) )
+head(v)
+df.loops <- data.frame(v)
+# df.loops
+head(df.loops)
+loop_size=199
+for(i in 2:loop_size){
+  v <- unlist ( lapply(loops, '[', i) )
+  df.loops <- cbind(df.loops , v)
+  print(head(v))
+}
+head(df.loops)
+
+names(df.loops) <-c("device_id" ,"v1", "v2","v3","v4","v5","v6","v7","v8","v9","v10"
+                                ,"v11","v12","v13","v14","v15","v16","v17","v18","v19","v20"
+                                ,"v21","v22","v23","v24","v25","v26","v27","v28","v29","v30"
+                                ,"v31","v32","v33","v34","v35","v36","v37","v38","v39","v40"
+                                ,"v41","v42","v43","v44","v45","v46","v47","v48","v49","v50"
+                                ,"v51","v52","v53","v54","v55","v56","v57","v58","v59","v60"
+                                ,"v61","v62","v63","v64","v65","v66","v67","v68","v69","v70"
+                                ,"v71","v72","v73","v74","v75","v76","v77","v78","v79","v80"
+                                ,"v81","v82","v83","v84","v85","v86","v87","v88","v89","v90"
+                                ,"v91","v92","v93","v94","v95","v96","v97","v98","v99","v100"
+                                ,"v101","v102","v103","v104","v105","v106","v107","v108","v109","v110"
+                                ,"v111","v112","v113","v114","v115","v116","v117","v118","v119","v120"
+                                ,"v121","v122","v123","v124","v125","v126","v127","v128","v129","v130"
+                                ,"v131","v132","v133","v134","v135","v136","v137","v138","v139","v140"
+                                ,"v141","v142","v143","v144","v145","v146","v147","v148","v149","v150"
+                                ,"v151","v152","v153","v154","v155","v156","v157","v158","v159","v160"
+                                ,"v161","v162","v163","v164","v165","v166","v167","v168","v169","v170"
+                                ,"v171","v172","v173","v174","v175","v176","v177","v178","v179","v180"
+                                ,"v181","v182","v183","v184","v185","v186","v187","v188","v189","v190"
+                                ,"v191","v192","v193","v194","v195","v196","v197","v198"
+)
+
+head(df.loops)
+
+
+```
+
+
+
+
+
+
+
+Adding some practical summary features to dataset.
+* while analyzing, this fields are added  pace by pace and not all at once.
+
+result      :  1: when chain is finished by "Done"
+               2: when chain is finished by "undone"  
+               
+page_sum    :  sum of all the pages, user had visited. ex: visiting  2->3->2->3  will result  in 10. This field is used as a code.
+               while,there are just some few top templates which will be revealed later
+               5: visiting 2 ->3
+               8: 2->3->2->1   
+               8: 2->3->2->3  
+               0: visting page 1 and simply leaving the process
+               
+page_cnt    :  How many pages has the user visited in total?
+
+field_err_cnt: How many Field Error does user face in his/her session or chain?
+Net_err_cnt :  How many Network Error does user face in his/her session or chain?
+               
+EF_xxxxx    :  How many Field Error of type xxxxx did user face?           
+
+```{r}
+
+
+df.loops[100:110,1:6]
+df.loops$result <- 0
+df.loops$page_sum <-0
+df.loops$page_cnt <-0
+
+
+df.loops$result        <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (x=='done',1,0),na.rm = TRUE) )
+
+df.loops$field_err_cnt <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('Field Err' , x),1,0),na.rm = TRUE) )
+df.loops$Net_err_cnt   <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('NetErr' , x),1,0),na.rm = TRUE) )
+
+df.loops$FE_brand      <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('brand' , x),1,0),na.rm = TRUE) )
+df.loops$FE_brand_model<-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('brand_model' , x),1,0),na.rm = TRUE) )
+df.loops$FE_category   <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('category' , x),1,0),na.rm = TRUE) )
+df.loops$FE_description      <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('description' , x),1,0),na.rm = TRUE) )
+df.loops$FE_link       <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('link' , x),1,0),na.rm = TRUE) )
+df.loops$FE_location   <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('location' , x),1,0),na.rm = TRUE) )
+df.loops$FE_national_id      <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('national_id' , x),1,0),na.rm = TRUE) )
+df.loops$FE_new_credit <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('new_credit' , x),1,0),na.rm = TRUE) )
+df.loops$FE_new_price  <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('new_price' , x),1,0),na.rm = TRUE) )
+df.loops$FE_phone      <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('phone' , x),1,0),na.rm = TRUE) )
+df.loops$FE_post_type  <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('post_type' , x),1,0),na.rm = TRUE) )
+df.loops$FE_rooms      <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('rooms' , x),1,0),na.rm = TRUE) )
+df.loops$FE_simcard_type      <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('simcard_type' , x),1,0),na.rm = TRUE) )
+df.loops$FE_size       <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('size' , x),1,0),na.rm = TRUE) )
+df.loops$FE_title      <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('title' , x),1,0),na.rm = TRUE) )
+df.loops$FE_type       <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('type' , x),1,0),na.rm = TRUE) )
+df.loops$FE_usage      <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('usage' , x),1,0),na.rm = TRUE) )
+df.loops$FE_user_type  <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('user_type' , x),1,0),na.rm = TRUE) )
+df.loops$FE_year       <-apply(df.loops,MARGIN = 1, function(x) sum(ifelse (grepl('year' , x),1,0),na.rm = TRUE) )
+
+df.loops$FE_type
+
+df.loops$page_sum      <-apply(df.loops[,1:199],MARGIN = 1, function(x) sum(ifelse(  !is.na(as.numeric(as.character.numeric_version(x)))  ,as.numeric(as.character.numeric_version(x)),0)  , na.rm = TRUE)) 
+hdf.loops$page_cnt      <-apply(df.loops[1:10,1:199],MARGIN = 1, function(x) sum(ifelse(  !is.na(as.numeric(as.character.numeric_version(x)))  ,1,0)  , na.rm = TRUE)) 
+df.loops$page_sum 
+
+
+df.loops$page_sum      <- apply(df.loops[1:10,1:199],MARGIN = 1, function(x) sum(ifelse(  !is.na(as.numeric(as.character.numeric_version(x)))  ,as.numeric(as.character.numeric_version(x)),0)  , na.rm = TRUE)) 
+
+
+test<-df.loops[1:100,1:199]
+test
+ apply(test[1:10,1:199] ,MARGIN = 1, function(x) sum(ifelse(  !is.na(as.numeric(as.character.numeric_version(x)))  ,as.numeric(as.character.numeric_version(x)),0)  , na.rm = TRUE))
+
+df.loops$page_sum 
+
+head(df.loops[109,1:199])
+df.loops[df.loops$is_back_Forth_user_user + df.loops$is_classic_wizzard_user + df.loops$is_to_zero == 0,]
+ncol(df.loops)
+df.loops[1:20, c(3:8,200:225)]
+
+
+```
+
+
+
+
+#-------------------------  conversion rate  -------------------------  
+*  Total conversion rate:
+   121316  / (121316 + 125630)  = 49%
+
+```{r}
+
+library(dplyr)
+
+# perform this condition to filter out noise. this guys have no start point
+
+######  Total conversion rate:
+df.loops %>%
+  filter(result<=1)%>%
+  group_by(result) %>%
+  summarise(
+    cnt = n()
+  ) %>%
+  arrange(desc(cnt)) 
+```
+
+
+######  conversion rate  based on Edit and New use cases:
+
+# Edit Page Conversion rate:  66302  / (93056 + 66302)  = 41%
+# New  Page Conversion rate:  55014  / (55014 + 32573)  = 62%
+```{r}
+df.loops %>%
+  filter(result<=1 & !is.na(result)) %>%
+  group_by(v1,result) %>%
+  summarise(
+    cnt = n()
+  ) %>%
+  arrange(desc(cnt)) 
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# -----------------------------------------------------------------------------------------  
+#---------------------------------                       -----------------------------------  
+#---------------------------------  Answering Questions  -----------------------------------
+#---------------------------------                       -----------------------------------  
+# -----------------------------------------------------------------------------------------  
+# does NetErro effect result?
+# does Field Error Effect the result?
+# what is in common between poeple who are are undone?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Here I  come up with top available patterns. 
+I call them with a name
+and try to identifysimilarities:
+# result  v2,                v3,                v4,                 v5                 v6                  v7                   page_cnt  page_sum   cnt
+# 1      0 0     undone                                                                                 1        0 75960   #--0--- to zero
+# 2      1 NetErr 1     2            3            done                                                  2        5 37990   #--1---classic wizar
+# 3      0 NetErr 0     undone                                                                          0        0  9666   #--0--- to zero
+# 4      1 2            3            done                                                               2        5  8893   #--1---classic wizar
+# 5      1 NetErr 1     Field Err    2            3            done                                     2        5  2526   #--1---classic wizar
+# 6      1 NetErr 1     2            1            2            3            done                        4        8  1559   #--1---back and forth 
+# 7      1 NetErr 1     NetErr 1     2            3            done                                     2        5  1204   #--1---classic wizar
+# 8      1 Field Err    2            3            done                                                  2        5  1084   #--1---classic wizar
+# 9      1 2            1            NetErr 1     2            3            done                        4        8  1052   #--1---back and forth 
+# 10     0 2            1            0            undone                                                3        3   863   #--0--- to zero
+# 11     0 undone                                                                                       0        0   763   #--0--- to zero
+# 12     1 2            1            2            3           done                                      4        8   681   #--1---back and forth 
+# 13     0 NetErr 1     2            1            0           undone                                    3        3   609   #--0--- to zero
+# 14     1 Field Err          Field Err          1            2            3            done            3        6   608   #--1---classic wizar
+# 15     0 NetErr 1     2            3           2            1            0                            5        8   589   #--1---back and forth 
+# 16     1 NetErr 1     2            3           2            1            2                            6       13   565   #--1---back and forth 
+# 17     1 NetErr 1     Field Err          Field Err          2            3            done            2        5   509   #--1---classic wizar
+# 18     0 0            undone       Field Err          Field Err          1            0               3        1   502   #--0--- to zero
+# 19     1 NetErr 1     2            1            NetErr 1     2           3                            4        8   465   #--1---back and forth 
+# 20     0 2            3            2            1            0           undone                       5        8   459   #--0--- to zero
+# 21     0 2            3            2            1            0           undone                       5        8   457
+# 22     1 NetErr 1     2            3            2            3           done                         4       10   388
+# 23     0 0            undone       0            undone                                                2        0   356   #--0--- to zero
+# 24     1 Field Err    Field Err    2            3            done                                     2        5   321
+# 25     1 Field Err    1            2            3            done                                     3        6   316
+# 26     0 NetErr 1     0            undone                                                             1        0   251   #--0--- to zero
+# 27     1 Field Err    Field Err    1            Field Err    2            3                           3        6   236
+# 28     1 0            undone       Field Err    1            NetErr 1     2                           4        6   223
+# 29     1 Field Err    Field Err    Field Err    2            3            done                        2        5   180
+# 30     1 NetErr 1     NetErr 1     NetErr 1     2            3            done                        2        5   171
+
+
+####################################################################################
+Here we label 3 types of usage. and we identify a rule to destinguish each :       #
+                                                                                   #
+1.Classic Wizzard                                                                  #
+  Definition:                                                                      #
+  users who are simply passing wizzard steps 1 by 1.                               #
+  1 -> 2 -> 3                                                                      #
+  Characteristic:                                                                  #
+  They are usually end up  successfully                                            #
+  rule:                                                                            #
+     page_cnt  = 2   &&  page_sum = 0    ==                                        #
+                         page_sum = 6    ==>  classic wizzard                      #
+                                                                                   #
+                                                                                   #
+2.Back and Forth                                                                   #
+  Definition:                                                                      #
+  users who are not following the wizzard. they wondering between pages            #
+  Characteristic:                                                                  #
+  1 -> 2 -> 3 ->2 ->1 : most likely to result in fialur and leaving the process    #
+  1 -> 2 -> 3 ->2 ->3 : most likely to end up successfully                         #
+  rule:                                                                            #
+                         page_sum>= 8   ==>  back and forth                        #
+                                                                                   #
+                                                                                   #
+3. to zero                                                                         #
+  Definition:                                                                      # 
+  This users might never visit page 3                                              #
+  Characteristic:                                                                  #
+  They mostly result in fialur and leaving the process                             #
+                     page_sum <=1    ==                                            #
+  page_cnt  = 3   &&  page_sum = 3    == >  to zero                                #
+                                                                                   #                                                         
+* usage_pattern: 1:to zero1   2:Classic Wizzard  3:Back and Forth                  #
+####################################################################################
+                                                                                   #
+  From This results find  out that                                                 #
+  1. those who come back to 0,  leave the process undone                           # 
+  2. Those who back and forth and stop by Page#3   finish successfully             #
+  3. Those who back and forth and stop by Page#0   leave undone                    #
+  4. those who follow thi wizzard are more likely to finish the successfully       #
+                                                                                   #
+####################################################################################
+
+
+
+
+```{r}
+library(dplyr)
+res1<- df.loops %>%
+  filter(v1=='New 1') %>%
+  group_by(result,substr(v2,1,9),substr(v3,1,9),substr(v4,1,9),substr(v5,1,9),substr(v6,1,9),substr(v7,1,9),substr(v8,1,9),substr(v9,1,9),page_cnt,page_sum ) %>%
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange(desc(cnt))
+nrow(res1)  #1153
+res1[1:20,]
+```
+
+
+
+Now that we find out about these 3 groups
+let's lable uers with 
+
+```{r}
+
+df.loops$is_classic_wizzard_user <- ifelse((df.loops$page_cnt == 2   &  df.loops$page_sum == 5) | ( df.loops$page_sum == 6) ,1 ,0)
+df.loops$is_back_Forth_user_user <- ifelse(   df.loops$page_sum >= 8 ,1,0)
+df.loops$is_to_zero <- ifelse( (df.loops$page_sum <=1) |  (df.loops$page_cnt  == 3   &  df.loops$page_sum == 3) ,1,0)
+
+df.loops$usage_pattern <- -1
+
+df.loops$usage_pattern <- ifelse(   df.loops$is_to_zero ==1 ,0,df.loops$usage_pattern)
+df.loops$usage_pattern <- ifelse(   df.loops$is_classic_wizzard_user ==1 ,1,df.loops$usage_pattern)
+df.loops$usage_pattern <- ifelse(   df.loops$is_back_Forth_user_user ==1 ,2,df.loops$usage_pattern)
+
+
+ncol(df.loops)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Q: How does  page_cnt effect the result?
+* page count is 1 unit less that reallity bczof programming style. that means wee need to add 1 to this measure. page_cnt = 0 means one page is seen.
+
+A: visting less than 1 page, can result in failur
+# p(page_cnt<=1 | succuss):  (131 + 138) / (10641 + 131+ 76849 +138 )  =   0.3 %
+but
+# p(page_cnt>=2 | succuss):  (131 + 138) / (10641 + 131+ 76849 +138 )  =  92.9 %
+
+```{r}
+library(dplyr)
+
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1) %>%
+  group_by(result,page_cnt ) %>%
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange(page_cnt)
+nrow(res1)  #39
+res1[1:40,]
+
+# p(page_cnt>=2 | succuss):  (54437 + 2347 + 6527 + 434 + 1687 + 101) / (759 + 54437+ 2607 +2347+ 121 + 6527 + 434+ 1521 + 1687+ 101)  =  0.3 %
+
+
+```
+
+
+```{r}
+
+library(ggplot2)
+ ggplot(data = res1 ,aes( x=page_cnt , y = cnt,fill = as.factor(result) ))+
+   geom_bar(stat = "identity",position = position_dodge())
+
+
+```
+
+
+
+```{r}
+
+ res1<- df.loops %>%
+   filter(v1=='New 1' & result<=1) %>%
+   group_by(result,page_sum,page_cnt) %>%
+   summarise(
+     cnt = n()
+   )  %>%
+   arrange(desc(cnt))
+ nrow(res1)  #39
+ res1[1:40,]
+ 
+```
+
+
+
+----------------------------------------  Network Error Assessment-------------------------------------------------
+
+
+
+
+
+Q :Does Net Error impact the resutl?
+A : Total number is different. but is there significantly different?
+```{r}
+
+summary(df.loops$Net_err_cnt)
+is_page_sum_lt_3
+
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1 & Net_err_cnt<10 ) %>%
+  # group_by(result,  is_page_sum_lt_3 =  ifelse(page_sum>=5,1,0)  , net_er_level = round(Net_err_cnt/3,0)) %>%
+  group_by( page_sum  , net_er_level = ifelse(Net_err_cnt>=1,1,0)) %>%
+  
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange(desc(cnt))
+nrow(res1)  #2
+res1#[1:2,]
+
+```
+
+
+
+
+desc:  We need to assess that with chi-square. But se should transform it first, since chi-square works with Normal Distibution
+A:   p-value = 1  shows that there is not significance interaction between "Net_err_cnt"  and "result"
+
+
+```{r}
+t <- log(table(df.loops$Net_err_cnt ,df.loops$result ) +1)
+t
+chisq.test( t   )
+
+```
+
+
+
+
+Q: Does network Error Effect visited pages?
+
+```{r}
+
+
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1  ) %>%
+  # group_by(result,  is_page_sum_lt_3 =  ifelse(page_sum<=3,1,0)  , net_er_level = round(Net_err_cnt/3,0)) %>%
+  group_by(  page_sum  , net_er_level = ifelse(Net_err_cnt>1,1,0) ) %>%
+  # group_by( page_sum ) %>%
+  
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange(page_sum)
+nrow(res1)  #140
+res1#[1:20,]
+
+```
+
+
+```{r}
+
+
+library(ggplot2)
+ ggplot(data = res1 ,aes( x=page_sum , y = log(cnt) ,fill = as.factor(net_er_level) ))+
+   geom_bar(stat = "identity",position = position_dodge())
+
+ 
+```
+
+
+desc:  We need to assess that with chi-square. But se should transform it first, since chi-square works with Normal Distibution
+A:   p-value = 1  shows that there is not significance interaction between "Net_err_cnt"  and "page_sum"
+
+
+```{r}
+t <- log(table( df.loops$page_sum , ifelse(df.loops$Net_err_cnt>1,1,0) ) +1)
+t
+chisq.test( t   )
+
+```
+
+
+
+```{r}
+
+
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1  ) %>%
+  # group_by(result,  is_page_sum_lt_3 =  ifelse(page_sum<=3,1,0)  , net_er_level = round(Net_err_cnt/3,0)) %>%
+  group_by(  is_page_sum_gt_5 =  ifelse(page_sum>=5,1,0)   , net_er_level = ifelse(Net_err_cnt>1,1,0) ) %>%
+  # group_by( page_sum ) %>%
+  
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange(net_er_level)
+nrow(res1)  #140
+res1#[1:20,]
+
+```
+
+
+
+A: Errors does not preventusers from going through the process. users visiting more pages, experiencing even more Net Error.
+
+* lets Just remember that majority of people are stoping at page 1
+```{r}
+
+library(ggplot2)
+ ggplot(data = res1 ,aes( x=is_page_sum_gt_5 , y = cnt ,fill = as.factor(net_er_level) ))+
+   geom_bar(stat = "identity",position = position_dodge())
+
+
+```
+
+
+
+```{r}
+
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1 & Net_err_cnt<10 ) %>%
+  # group_by(result,  is_page_sum_lt_3 =  ifelse(page_sum>=5,1,0)  , net_er_level = round(Net_err_cnt/3,0)) %>%
+  group_by( result  , net_er_level = ifelse(Net_err_cnt>=1,1,0)) %>%
+  
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange(net_er_level)
+nrow(res1)  #63
+res1
+
+```
+
+
+
+
+
+
+
+# ###############################################
+# Now the Question is:
+# why people do not go furthur from page 1 or 2?
+# does Network Err or field Error play any role?
+
+```{r}
+
+
+
+
+summary(df.loops$Net_err_cnt)
+is_page_sum_lt_3
+
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1 & Net_err_cnt<10 ) %>%
+  # group_by(result,  is_page_sum_lt_3 =  ifelse(page_sum>=5,1,0)  , net_er_level = round(Net_err_cnt/3,0)) %>%
+  group_by(result,  is_page_sum_lt_3 =  ifelse(page_sum>=5,1,0)  , net_er_level = ifelse(Net_err_cnt>=1,1,0)) %>%
+  
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange(net_er_level,is_page_sum_lt_3)
+nrow(res1)  #63
+res1[1:20,]
+####  Majority of failaur cases stop at page 0 for no reason. It s a routine  case in marketing data. this people are just trying options of the page.
+####  lets ignor this group
+#
+#
+# result is_page_sum_lt_3 net_er_level   cnt
+# 1      0                0            0 79505
+# 2      1                0            0   169
+# 3      0                1            0   829
+# 4      1                1            0 14870
+# 5      0                0            1 11571   *
+# 6      1                0            1   145   *
+# 7      0                1            1  1142   *
+# 8      1                1            1 51117   *
+ggplot(data = res1 ,aes( x=Net_err_cnt , y = cnt,fill = as.factor(result) ))+
+  geom_bar(stat = "identity",position = position_dodge())+
+  geom_text( aes( label = Net_err_cnt))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------    fixing the rule of "patterns"    --------------------------------------
+
+
+
+```{r}
+
+
+# setting labels:  cheking miss identifications. trying to check  rules of patterns
+
+library(dplyr)
+names(df.loops)
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1  ) %>%
+  # group_by(result,is_page_sum_gt_3 =  ifelse(page_sum>=5,1,0)
+  # ,  FE_category ) %>%
+  group_by(result ,page_cnt,page_sum,is_classic_wizzard_user,is_back_Forth_user_user,is_to_zero ) %>%
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange( desc(cnt))
+nrow(res1)  #63
+res1
+
+
+```
+
+
+
+
+
+
+getting to know this three groups statistically:
+
+
+   is_classic_wizzard_user        57497 / (57497+199)   = 99.6 % sucessfull 
+   is_back_Forth_user_user        7960  / (1701 +7960 ) = 82.3 % sucessfull  ==>  when page_cnt = 4 then success  -   when page_cnt=5 then fialur
+   is_to_zero                     90724 / (90724+171)   = 99.8 % failur
+
+
+
+
+when the visit is like:        1 ->                           the chance ofbeing succefull is like:1 -( (90724 +171 )   /( 171+ 90724 + 674 + 432 +7960+ 1701 + 57497 + 199) ) = 0.4296176%
+
+when he reachs page 2 and 3:   1 -> 2 -> 3 ->                 it will be so probable to success   (57497 + 7960+ 1701) /( 674 + 432 +7960+ 1701 + 57497 + 199)  = 98% chance to get succusfull
+
+if he comes back to 2:         1 -> 2 -> 3  ->  2 ...>1            there is      1701 / (1701+7960)= 17% chance that he chooses 1 in next step  and the process finishes undon
+
+if he comes back to 2:         1 -> 2 -> 3  ->  2 ...>3            there is      7960 / (1701+7960)= 82% chance that he chooses 3 in next finishs the process succesfully
+
+
+
+```{r}
+
+
+library(dplyr)
+
+names(df.loops)
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1  ) %>%
+  # group_by(result,is_page_sum_gt_3 =  ifelse(page_sum>=5,1,0)
+           # ,  FE_category ) %>%
+  group_by(result,is_classic_wizzard_user,is_back_Forth_user_user,is_to_zero ) %>%
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange( is_classic_wizzard_user,is_back_Forth_user_user,is_to_zero)
+nrow(res1)  #63
+res1
+
+
+
+
+```
+
+
+
+
+
+
+
+
+----------------------------------------  Field Error Assessment-------------------------------------------------
+
+
+######################################################################################  
+# Here I am testing all error counts, against the "result" to see which type
+#  in case FE_brand  happens but page >=5 then susscess full.
+#
+# below error types are looking more effective amoung others:
+
+# row  result      is_page_sum_gt_3  FE_?   cnt
+# FE_location:
+# 5      1                1          1  4383
+# 6      0                0          1   133
+# 7      0                1          1   105
+# 8      1                0          1     4
+#  4383
+# FE_category:------------------------------
+# 5      1                1          1  1861
+# 6      0                0          1    84
+# 7      0                1          1    68
+# FE_description:---------------------------
+# 5      1                1          1   992
+# 6      0                0          1   892
+# 7      0                1          1    68
+# 8      1                0          1     4
+# 9      1                1          2   142
+# 10     0                0          2   140
+# 11     0                1          2    25
+# 12     0                0          3    73
+# 13     1                1          3    56
+# 14     0                1          3     5
+# FE_title-----------------------------------
+# 5      1                1          1   940
+# 6      0                0          1   827
+# 7      0                1          1    53
+# 8      1                0          1     2
+# 9      1                1          2   185
+# 10     0                0          2   112
+# 11     0                1          2    15
+# 12     1                1          3    94
+# 13     0                0          3    75
+# 14     0                1          3     8
+# 15     1                1          4    49
+# 16     0                0          4    44
+# 17     0                1          4     3
+#
+#
+#
+#
+# Result:
+#  Below fields can effect user, and stop him by page  1 or 2
+#  FE_location
+#  FE_category
+#  FE_description
+#  FE_title
+
+
+
+
+```{r}
+
+
+# "FE_brand"        "FE_post_type"    "FE_user_type"   
+# [208] "FE_location"     "FE_usage"        "FE_category"     "FE_description"  "FE_year"         "FE_simcard_type" "FE_size"         "FE_brand_model"  "FE_new_price"   
+# [217] "FE_national_id"  "FE_rooms"        "FE_type"         "FE_phone"        "FE_link"         "FE_new_credit"   "FE_title"  
+
+######### field Error type  role in page_sum and result
+library(dplyr)
+names(df.loops)
+res1<- df.loops %>%
+  filter(v1=='New 1' & result<=1  ) %>%
+  group_by(result,is_page_sum_gt_3 =  ifelse(page_sum>=5,1,0),  FE_category ) %>%
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange( FE_category ,desc(cnt))
+nrow(res1)  #63
+res1[1:20,]
+
+
+
+```
+
+
+
+
+
+
+
+Q : is there any relationship between Network Error and usage_pattern?
+A:  As previously showed, Network Error emerged so high in rate, for users  who visited more pages.
+    for sure it can not be an abstacle
+
+```{r}
+
+
+
+ df.loops %>%
+  filter(v1=='New 1' & result<=1  ) %>%
+  group_by(usage_pattern,net_er_level = ifelse(Net_err_cnt>=1,1,0)   ) %>%
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange( desc(cnt)) %>%
+  ggplot(aes( x=usage_pattern , y = cnt,fill = as.factor(net_er_level) ))+
+   geom_bar(stat = "identity",position = position_dodge())
+
+
+
+```
+
+
+Q : is there any relationship between Field Error and usage_pattern?
+A :  It does not significantly show any causuality relationship. 
+     in segment#2 (Classical_wizzard_users), which are 99% successful, we can see most field Errors.
+     They can not be taken as any obstacle.
+
+```{r}
+
+ df.loops %>%
+  filter(v1=='New 1' & result<=1  ) %>%
+  group_by(usage_pattern, has_field_err = ifelse(field_err_cnt>=1,1,0)   ) %>%
+  summarise(
+    cnt = n()
+  )  %>%
+  arrange( desc(cnt)) %>%
+  ggplot(aes( x=usage_pattern , y = cnt,fill = as.factor(has_field_err) ))+
+   geom_bar(stat = "identity",position = position_dodge())
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#################################################################################################################
+#################################################################################################################
+# lets test logetic regression to find out which factors play a role in finishing the job successfully
+#
+# 1. how does factors effect result?
+# 2. how does factors obstacle user in page 0?
+# 3. how does factors obstacle user in 1-2-3-2 to comebacke to page 1?
+
+# how does factors effect result?
+
+
+
+
+Q:  how does factors effect result?
+A:  it gives us no new information but  seeing more pages can increase the chance of success.
+    + most important combinations of success are:
+      page_sum5:page_cnt2
+      page_sum6:page_cnt3
+      page_sum6:page_cnt4
+      page_sum8:page_cnt4
+    + most important combinations of failur are: 
+      page_sum0:page_cnt0
+      page_sum0:page_cnt1
+      page_sum2:page_cnt1
+      page_sum1:page_cnt2
+      page_sum3:page_cnt2
+      page_sum1:page_cnt3
+      page_sum6:page_cnt5
+    which we already segmented as Usage_pattern  
+
+```{r}
+
+
+
+df.loops.gl <- df.loops[df.loops$result<=1 ,]
+df.loops.gl
+mdl_result1 <- glm(result ~ field_err_cnt +  page_sum + page_cnt + Net_err_cnt, data = df.loops.gl, family = "binomial")
+summary(mdl_result1)
+
+df.loops.gl$page_sum    <-    factor (ifelse(  df.loops.gl$page_sum<=8 , df.loops.gl$page_sum,10))
+df.loops.gl$page_cnt    <-    factor( ifelse(  df.loops.gl$page_cnt<=5 , df.loops.gl$page_cnt,10) )
+df.loops.gl$Net_err_cnt <-    factor( ifelse(  df.loops.gl$Net_err_cnt>0 , 1,0) )
+df.loops.gl$field_err_cnt <-    factor( ifelse(  df.loops.gl$field_err_cnt>0 , 1,0) )
+head(df.loops.gl)
+
+##### it gives us no new information but  seeing morepages can increase the chance of success
+
+
+
+
+df.loops.gl <- df.loops[df.loops$result<=1,]
+df.loops.gl
+mdl_result1 <- glm(result ~ field_err_cnt +  page_sum:page_cnt +  Net_err_cnt, data = df.loops.gl, family = "binomial")
+summary(mdl_result1)
+
+
+```
+
+
+
+
+
+
+
+
+############################  important result
+
+Q. How does field Errors effect user to be "is_to_zero"  segment?
+
+A. by testing filed and its intraction on page_cnt, we highlight that, below filed, negatively effect user,
+   put him/her in "to_zero" serment, 
+   and stops him/her from going furthur in the wizzard
+   
+# page_cnt2:FE_description1    8.041e+00  5.985e-01  13.435  < 2e-16 ***
+# page_cnt2:FE_title1          8.706e+00  7.209e-01  12.076  < 2e-16 ***
+
+```{r}
+
+df.loops.gl$page_sum
+df.loops.gl <- df.loops[df.loops$result<=1,]
+df.loops.gl
+df.loops.gl$page_sum    <-    factor (ifelse(  df.loops.gl$page_sum<=6 , df.loops.gl$page_sum,10))
+df.loops.gl$page_cnt    <-    factor( ifelse(  df.loops.gl$page_cnt<=5 , df.loops.gl$page_cnt,10) )
+df.loops.gl$Net_err_cnt <-    factor( ifelse(  df.loops.gl$Net_err_cnt>0 , 1,0) )
+df.loops.gl$FE_brand <-    factor( ifelse(  df.loops.gl$FE_brand>0 , 1,0) )
+df.loops.gl$FE_post_type <-    factor( ifelse(  df.loops.gl$FE_post_type>0 , 1,0) )
+df.loops.gl$FE_user_type <-    factor( ifelse(  df.loops.gl$FE_user_type>0 , 1,0) )
+df.loops.gl$FE_location <-    factor( ifelse(  df.loops.gl$FE_location>0 , 1,0) )
+df.loops.gl$FE_usage <-    factor( ifelse(  df.loops.gl$FE_usage>0 , 1,0) )
+df.loops.gl$FE_category <-    factor( ifelse(  df.loops.gl$FE_category>0 , 1,0) )
+df.loops.gl$FE_description <-    factor( ifelse(  df.loops.gl$FE_description>0 , 1,0) )
+df.loops.gl$FE_year <-    factor( ifelse(  df.loops.gl$FE_year>0 , 1,0) )
+df.loops.gl$FE_simcard_type <-    factor( ifelse(  df.loops.gl$FE_simcard_type>0 , 1,0) )
+df.loops.gl$FE_size <-    factor( ifelse(  df.loops.gl$FE_size>0 , 1,0) )
+df.loops.gl$FE_brand_model <-    factor( ifelse(  df.loops.gl$FE_brand_model>0 , 1,0) )
+df.loops.gl$FE_new_price <-    factor( ifelse(  df.loops.gl$FE_new_price>0 , 1,0) )
+df.loops.gl$FE_national_id <-    factor( ifelse(  df.loops.gl$FE_national_id>0 , 1,0) )
+df.loops.gl$FE_rooms <-    factor( ifelse(  df.loops.gl$FE_rooms>0 , 1,0) )
+df.loops.gl$FE_type <-    factor( ifelse(  df.loops.gl$FE_type>0 , 1,0) )
+df.loops.gl$FE_phone <-    factor( ifelse(  df.loops.gl$FE_phone>0 , 1,0) )
+df.loops.gl$FE_link <-    factor( ifelse(  df.loops.gl$FE_link>0 , 1,0) )
+df.loops.gl$FE_new_credit <-    factor( ifelse(  df.loops.gl$FE_new_credit>0 , 1,0) )
+df.loops.gl$FE_title <-    factor( ifelse(  df.loops.gl$FE_title>0 , 1,0) )
+
+
+
+mdl_result1_factor <- glm(is_to_zero ~ FE_brand:page_cnt +FE_brand_model:page_cnt + FE_category:page_cnt
+                          + FE_category:page_cnt +   FE_description:page_cnt +FE_link:page_cnt +       FE_location:page_cnt+  FE_national_id:page_cnt + FE_new_credit:page_cnt  +  FE_new_price:page_cnt +   FE_phone:page_cnt
+                          + FE_post_type:page_cnt + FE_rooms:page_cnt 
+                          +       FE_simcard_type:page_cnt  + FE_size:page_cnt  +        FE_title:page_cnt
+                          +       FE_type:page_cnt
+                          + FE_usage
+                          +       FE_user_type +   FE_year
+                          , data = df.loops.gl, family = "binomial")
+
+summary(mdl_result1_factor)
+```
+
+
+
+```{r}
+mdl_result1_factor <- glm(result ~ FE_brand:page_cnt +FE_brand_model:page_cnt + FE_category:page_cnt
+                          + FE_category:page_cnt +   FE_description:page_cnt +FE_link:page_cnt +       FE_location:page_cnt+  FE_national_id:page_cnt + FE_new_credit:page_cnt  +  FE_new_price:page_cnt +   FE_phone:page_cnt
+                          + FE_post_type:page_cnt + FE_rooms:page_cnt 
+                          +       FE_simcard_type:page_cnt  + FE_size:page_cnt  +        FE_title:page_cnt
+                          +       FE_type:page_cnt
+                          + FE_usage
+                          +       FE_user_type +   FE_year
+                          , data = df.loops.gl, family = "binomial")
+
+summary(mdl_result1_factor)
+```
+
+
+
+
+
+
+######################################################################################################################
+######################################################################################################################
+#################################################   Conclusion  ######################################################
+######################################################################################################################
+######################################################################################################################
+There are 3 patterns which users follow.
+
+
+   is_classic_wizzard_user        57497 / (57497+199)   = 99.6 % sucessfull 
+   is_back_Forth_user_user        7960  / (1701 +7960 ) = 82.3 % sucessfull  ==>  when page_cnt = 4 then success  -   when page_cnt=5 then fialur
+   is_to_zero                     90724 / (90724+171)   = 99.8 % failur
+
+
+is_classic_wizzard_user reaches page 2 and 3
+is_back_Forth_user_user reaches 2 and 3 and wonders around. If he gets backe to page 1, there is a high chance that he/she might fails
+                        but if she/he gets backe to page 3, most probably she/he will successfully finish the chain.
+is_to_zero              never reaches page 3 and sometimes even page 2 ( this is the most common case)
+
+
+so:
+1. what makes people stock  on first pages and do no proceed to next page?
+   sometimes they are just trying "Add advertise" butt
+   or
+   sometimes, based on logestic regression, there are some fileds, that significiantly, increase the chance of being in "is_to_zero" segment.
+   Description  +  title
+   errors on this field increase the chance of being in "is_to_zero" segment, therefor decrease the chance of visiting other pages,
+   that is capstone of ending unsuccessfully.
+   on the other hand, there are some fileds on age 3, which attract usere to click on finish and submite the advertisment.
+   we need to make user visit that page faster. As I tried this dunction on Divar App, I found out page 3, includes lots of "Selection Components".
+   They are easy to fill, and attractive for user. But Title and Descrption textboxs, are hard  to fill. It's hard for android user to fill it.
+   I guess users give up, when they see this 2 big textboxes and they miss fantastic multi-selection components of page3.
+   
+   
+   suggestion:
+   what if you put Description and Title Textboxs on page 3, and show users attractive multi-selection components first?
+   they are easy to fill out, and when user reach Desciption and Title and very last page, he/she would more likely fill the boxs, cause that's the last       step.He wont give up whole process now, while he has already filled a lot. that would be a wast to quite at page 3.
+   
+2.What makes people reach page 3, come backe to page 2, but never get back to the wizzard fot page 3 agian?
+   I did not have enough time to answer this question
+   but there are 20% of  "is_back_Forth_user_user" segment, that we lose on this regard.
+
+
+
