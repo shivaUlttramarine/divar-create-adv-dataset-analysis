@@ -1,4 +1,4 @@
-# Analyzing a "Dovar" dataset about "creating new Addvertisment"
+# Analyzing a "Divar" dataset about "creating new Addvertisment"
 Divar is a service like E-bay. 
 Here I am working on a dataset of users, who are willing to "Create a New Advertisment".
 Dataset includes a seriesof logs, which shows each action of a user, on "Create a new Add" pannel.
