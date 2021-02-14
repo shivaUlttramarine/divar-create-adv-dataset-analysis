@@ -1,5 +1,5 @@
 # Analyzing a "Divar" dataset about "creating new Addvertisment"
-Divar is a service like E-bay. 
+Divar is a service like ebay. 
 Here I am working on a dataset of users, who are willing to "Create a New Advertisment".
 Dataset includes a seriesof logs, which shows each action of a user, on "Create a new Add" pannel.
 for example which page he is in(page_number)? and which of the form-fields are raising an Error or what the action is (action)?
